@@ -1432,7 +1432,7 @@ public class GraphImpl implements Graph {
         Position east = from.predict(distanceKm, 90);
         Position west = from.predict(distanceKm, 270);
 
-        return Geometries.rectangle(north.getLat(),west.getLon(),south.getLat(),east.getLon());
+        return Geometries.rectangle(west.getLon(),north.getLat(),east.getLon(),south.getLat());
         
         
         
