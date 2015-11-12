@@ -19,7 +19,11 @@ import org.graphast.util.FileUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.graphhopper.util.StopWatch;
+import com.github.davidmoten.grumpy.core.Position;
+import com.github.davidmoten.rtree.Entry;
+import com.github.davidmoten.rtree.RTree;
+import com.github.davidmoten.rtree.geometry.Geometries;
+import com.github.davidmoten.rtree.geometry.Rectangle;
 
 import it.unimi.dsi.fastutil.BigArrays;
 import it.unimi.dsi.fastutil.ints.IntBigArrayBigList;
@@ -33,6 +37,8 @@ import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
 import it.unimi.dsi.fastutil.objects.ObjectBigArrayBigList;
 import it.unimi.dsi.fastutil.objects.ObjectBigList;
+import rx.Observable;
+import rx.functions.Func1;
 
 public class GraphImpl implements Graph {
 
@@ -69,6 +75,8 @@ public class GraphImpl implements Graph {
 	protected int maxTime = 86400000;
 
 	protected BBox bBox;
+	
+	protected RTree<String, com.github.davidmoten.rtree.geometry.Point> tree;
 
 	/**
 	 * Creates a Graph for the given directory passed as parameter.
@@ -97,6 +105,8 @@ public class GraphImpl implements Graph {
 		points = new IntBigArrayBigList();
 
 		nodeIndex.defaultReturnValue(-1);
+
+		tree = RTree.star().create();
 
 	}
 
@@ -1325,30 +1335,109 @@ public class GraphImpl implements Graph {
 	// be much more efficient.
 	// See rtree implementation in: https://github.com/davidmoten/rtree 
 	public Node getNearestNode (double latitude, double longitude) {
-		StopWatch sw = new StopWatch();
-		sw.start();
+//		StopWatch sw = new StopWatch();
+//		sw.start();
+		double distanceKm = 0.1;
+		
+		com.github.davidmoten.rtree.geometry.Point pointToSearch = com.github.davidmoten.rtree.geometry.Geometries.point(longitude, latitude);
 
-		Node point = new NodeImpl();
-		point.setLatitude(latitude);
-		point.setLongitude(longitude);
-		Node nearestNode = getNode(nodes.get(0));
-		Node currentNode;
-		double currentDistance;
-		double nearestDistance = DistanceUtils.distanceLatLong(point, nearestNode);
-		for (long i = 1; i<getNumberOfNodes(); i++) {
-			currentNode = getNode(i);
-			currentDistance = DistanceUtils.distanceLatLong(point, currentNode);
-			if (currentDistance < nearestDistance) {
-				nearestNode = currentNode;
-				nearestDistance = currentDistance;
-			}
+		
+		List<Entry<String, com.github.davidmoten.rtree.geometry.Point>> list = search(this.tree, pointToSearch, distanceKm)
+			        // get the result
+			                .toList().toBlocking().single();
+		
+		while(list.size() == 0) {
+			
+			distanceKm = distanceKm*2;
+			
+			list = search(this.tree, pointToSearch, distanceKm).toList().toBlocking().single();
+			
 		}
 
-		sw.stop();
+		if(list.size()>1) {
+		
+			Node point = new NodeImpl();
+			point.setLatitude(latitude);
+			point.setLongitude(longitude);
+			Node nearestNode = getNode(Integer.parseInt(list.get(0).value()));
+			Node currentNode;
+			double currentDistance;
+			double nearestDistance = DistanceUtils.distanceLatLong(point, nearestNode);
+			
+			for (int i = 1; i<list.size(); i++) {
+				currentNode = getNode(Integer.parseInt(list.get(i).value()));
+				currentDistance = DistanceUtils.distanceLatLong(point, currentNode);
+				if (currentDistance < nearestDistance) {
+					nearestNode = currentNode;
+					nearestDistance = currentDistance;
+				}
+			}
+			
+			return nearestNode;
+			
+		} else {
+			return getNode(getNodeId(list.get(0).geometry().y(), list.get(0).geometry().x()));
+		}
+		
+//		Node point = new NodeImpl();
+//		point.setLatitude(latitude);
+//		point.setLongitude(longitude);
+//		Node nearestNode = getNode(nodes.get(0));
+//		Node currentNode;
+//		double currentDistance;
+//		double nearestDistance = DistanceUtils.distanceLatLong(point, nearestNode);
+//		for (long i = 1; i<getNumberOfNodes(); i++) {
+//			currentNode = getNode(i);
+//			currentDistance = DistanceUtils.distanceLatLong(point, currentNode);
+//			if (currentDistance < nearestDistance) {
+//				nearestNode = currentNode;
+//				nearestDistance = currentDistance;
+//			}
+//		}
+
+//		sw.stop();
 		//log.debug("Execution Time of getNearestNode(): {}ms", sw.getTime());
 
-		return nearestNode;
+		
 	}
+	
+	//TODO REMOVE THIS METHOD
+	public static <T> Observable<Entry<T, com.github.davidmoten.rtree.geometry.Point>> search(RTree<T, com.github.davidmoten.rtree.geometry.Point> tree, com.github.davidmoten.rtree.geometry.Point lonLat,
+            final double distanceKm) {
+        // First we need to calculate an enclosing lat long rectangle for this
+        // distance then we refine on the exact distance
+        final Position from = Position.create(lonLat.y(), lonLat.x());
+        Rectangle bounds = createBounds(from, distanceKm);
+
+        return tree
+        // do the first search using the bounds
+                .search(bounds)
+                // refine using the exact distance
+                .filter(new Func1<Entry<T, com.github.davidmoten.rtree.geometry.Point>, Boolean>() {
+                    @Override
+                    public Boolean call(Entry<T, com.github.davidmoten.rtree.geometry.Point> entry) {
+                    	com.github.davidmoten.rtree.geometry.Point p = entry.geometry();
+                        Position position = Position.create(p.y(), p.x());
+                        return from.getDistanceToKm(position) < distanceKm;
+                    }
+                });
+    }
+	
+	private static Rectangle createBounds(final Position from, final double distanceKm) {
+        // this calculates a pretty accurate bounding box. Depending on the
+        // performance you require you wouldn't have to be this accurate because
+        // accuracy is enforced later
+        Position north = from.predict(distanceKm, 0);
+        Position south = from.predict(distanceKm, 180);
+        Position east = from.predict(distanceKm, 90);
+        Position west = from.predict(distanceKm, 270);
+
+        return Geometries.rectangle(north.getLat(),west.getLon(),south.getLat(),east.getLon());
+        
+        
+        
+//        return Geometries.rectangle(west.getLon(), south.getLat(), east.getLon(), north.getLat());
+    }
 
 	public boolean equals(Graph obj) {
 		if((obj.getNumberOfNodes() == this.getNumberOfNodes()) && (obj.getNumberOfEdges() == this.getNumberOfEdges())) {
@@ -1465,6 +1554,15 @@ public class GraphImpl implements Graph {
 	public void setDirectory(String directory) {
 		this.absoluteDirectory = FileUtils.getAbsolutePath(directory);
 		this.directory = directory;
+	}
+	
+	@Override
+	public void addNodeInIndex(Node n) {
+	
+		com.github.davidmoten.rtree.geometry.Point point = com.github.davidmoten.rtree.geometry.Geometries.point(n.getLongitude(), n.getLatitude());
+		
+		this.tree = tree.add(n.getId().toString(), point);
+		
 	}
 	
 }

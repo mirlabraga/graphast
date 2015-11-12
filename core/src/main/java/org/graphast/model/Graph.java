@@ -321,4 +321,6 @@ public interface Graph {
 	public String getAbsoluteDirectory();
 
 	public void setDirectory(String directory);
+	
+	public void addNodeInIndex(Node n);
 }

@@ -92,6 +92,10 @@ public class OSMImporterImpl implements Importer {
 
 				fromNode = new NodeImpl(externalFromNodeId, latitudeFrom, longitudeFrom);
 				graph.addNode(fromNode);
+				graph.addNodeInIndex(fromNode);
+				
+				
+				
 				fromNodeId = (long)fromNode.getId();
 				hashExternalIdToId.put(externalFromNodeId, fromNodeId);
 			} else {
@@ -101,6 +105,7 @@ public class OSMImporterImpl implements Importer {
 			if(!hashExternalIdToId.containsKey(externalToNodeId)){
 				toNode = new NodeImpl(externalToNodeId, latitudeTo, longitudeTo);
 				graph.addNode(toNode);
+				graph.addNodeInIndex(toNode);
 				toNodeId = (long)toNode.getId();
 				hashExternalIdToId.put(externalToNodeId, toNodeId);
 			} else {
