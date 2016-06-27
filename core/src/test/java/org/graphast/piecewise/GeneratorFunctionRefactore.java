@@ -73,6 +73,28 @@ public class GeneratorFunctionRefactore {
 		graph.setFuntionEdge(1l, function);
 	}
 	
+	@Test
+	public void definedFuntionLossRWithStreamEdgeTest() throws PiecewiseException {
+		
+		//Hora do dia: Dia: 16/01/2016 Hora: 11:30:00
+		Calendar calendar = Calendar.getInstance();
+		calendar.set(2016, 06, 27, 11, 30, 00);
+		long timestamp = calendar.getTimeInMillis(); 
+		
+		GraphGenerator graphGenerator = new GraphGenerator();
+		Graph graph = graphGenerator.generateExample();
+		
+		IBuilderDatasource generatorFunctionPiecewise = new BuilderDatasourceDB();
+		double[][] coleta = generatorFunctionPiecewise.getData();
+		IManipulatorEngine engineR = new ManipulatorR(coleta);
+		
+		IGeneratorFunction generatorFunction = new GeneratorFunctionLoess(engineR);
+		Function function = generatorFunction.gerFuntionEdge(1l, timestamp);
+		
+		graph.setFuntionEdge(1l, function);
+		
+	}
+	
 	//Criar o graph com as funções dos edges
 	@Test
 	public void createGraphWithFuntionEdgeTest() {

@@ -12,6 +12,10 @@ public class Function {
 		this.x = x;
 	}
 
+	public Function(long timestamp) {
+		this.x = timestamp;
+	}
+
 	public long getY() {
 		return y;
 	}
